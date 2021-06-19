@@ -20,7 +20,6 @@ const (
 type client struct {
 	id         string
 	conn       net.Conn
-	sndChannel chan []byte
 	rcvChannel chan packet
 }
 
@@ -40,7 +39,7 @@ type packet struct {
 func New(username string) Server {
 	cs := make([]*client, 0, 10)
 	ch := make(chan packet, 50)
-	prompt := fmt.Sprintf("%s%s%s>%s ", bold, lGreen, username, string(reset))
+	prompt := fmt.Sprintf("%s%s%s>%s ", bold, lGreen, username, reset)
 	promptDelete := strings.Repeat("\b", len(prompt))
 	return Server{username, cs, ch, prompt, promptDelete}
 }
@@ -56,24 +55,16 @@ func (s *Server) Start(url string) {
 	go s.readInput()
 	// go s.pollConns()
 
+	fmt.Print(s.prompt)
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
 			fmt.Printf("Failed to accept connection: %v", err)
 		} else {
-			sndCh := make(chan []byte, 50)
-			c := client{conn: conn, sndChannel: sndCh, rcvChannel: s.rcvChannel}
+			c := client{conn: conn, rcvChannel: s.rcvChannel}
 			s.clients = append(s.clients, &c)
-			go handleConn(&c)
+			go c.readIncoming()
 		}
-	}
-}
-
-func handleConn(c *client) {
-	go c.readIncoming()
-
-	for msg := range c.sndChannel {
-		c.conn.Write(msg)
 	}
 }
 
@@ -117,6 +108,9 @@ func (s *Server) readInput() {
 		s.rcvChannel <- packet{s.id, sca.Text()}
 		fmt.Print(s.prompt)
 	}
+	if sca.Err() == nil {
+		os.Exit(0)
+	}
 }
 
 func (c *client) readIncoming() {
@@ -135,7 +129,7 @@ func (s *Server) startBroadcast() {
 	for pk := range s.rcvChannel {
 		if pk.id != s.id {
 			fmt.Print(s.promptDelete)
-			msg := fmt.Sprintf("%s%s%s>%s %s", string(bold), string(lYellow), pk.id, string(reset), pk.msg)
+			msg := fmt.Sprintf("%s%s%s>%s %s", bold, lYellow, pk.id, reset, pk.msg)
 			fmt.Println(msg)
 			fmt.Print(s.prompt)
 		}
@@ -167,6 +161,8 @@ func processCmd(c *client, msg string) {
 			}
 			return
 		}
+	case "info":
+		return
 	default:
 		goto FAIL_CMD
 	}

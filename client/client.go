@@ -70,6 +70,9 @@ func readInput(sendCh chan []byte) {
 		msg := fmt.Sprintf("%v\n", s.Text())
 		sendCh <- []byte(msg)
 	}
+	if s.Err() == nil {
+		os.Exit(0)
+	}
 }
 
 func (c *Client) readIncoming(rcvCh chan packet, conn net.Conn) {
