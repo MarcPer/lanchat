@@ -2,5 +2,5 @@
 
 build: lanchat
 
-lanchat: main.go client/client.go server/server.go
+lanchat: main.go peer.go
 	@CGO_ENABLED=0 go build

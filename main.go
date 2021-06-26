@@ -7,12 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
-
-	"github.com/MarcPer/lanchat/client"
-	"github.com/MarcPer/lanchat/server"
 )
-
-const CHAT_PORT = 6776
 
 func main() {
 	var user = flag.String("u", "noone", "user name")
@@ -24,16 +19,16 @@ func main() {
 		ips = append(ips, net.IPv4(127, 0, 0, 1))
 	}
 	url, found := searchServer(ips)
+	var server bool
 
 	if found {
 		fmt.Printf("found in %s\n", url)
-		c := client.New(*user, url)
-		c.Start()
 	} else {
 		fmt.Println("no active servers found. Starting one.")
-		s := server.New(*user)
-		s.Start(fmt.Sprintf(":%d", CHAT_PORT))
+		server = true
 	}
+	p := New(*user, server)
+	p.Start(url)
 }
 
 func getIps() []net.IP {
@@ -64,7 +59,7 @@ func searchServer(ips []net.IP) (string, bool) {
 	fmt.Print("Searching for active server... ")
 	var url string
 	for _, ip := range ips {
-		url = fmt.Sprintf("%s:%d", ip, CHAT_PORT)
+		url = fmt.Sprintf("%s:%d", ip, ChatPort)
 		conn, err := net.Dial("tcp", url)
 		if err == nil {
 			conn.Close()
