@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -12,8 +13,10 @@ import (
 
 const ChatPort = 6776
 const serverUser = "server"
+const notifyCooldown = 20 * time.Second
 
 var clientsLock sync.RWMutex
+var notifyLock sync.Mutex
 
 const (
 	fontReset  = "\033[0m"
@@ -33,6 +36,7 @@ type peer struct {
 	clients      []*peer
 	prompt       string
 	promptDelete string
+	lastNotify   time.Time
 }
 
 type packet struct {
@@ -40,6 +44,7 @@ type packet struct {
 	sourceId  string
 	destUsr   string
 	msg       string
+	hideNotif bool
 }
 
 func New(username string, server bool) peer {
@@ -178,6 +183,7 @@ func (p *peer) processQueues() {
 					continue
 				}
 			}
+			go p.notify(pk)
 			var color string
 			fmt.Print(p.promptDelete, strings.Repeat(" ", len(p.promptDelete)), p.promptDelete)
 			if pk.sourceUsr == serverUser {
@@ -253,13 +259,28 @@ FAIL_CMD:
 }
 
 func (p *peer) sendInfoMsg(destUsr string) {
-	p.inbox <- packet{sourceUsr: serverUser, destUsr: destUsr, msg: "Connected users:"}
-	p.inbox <- packet{sourceUsr: serverUser, destUsr: destUsr, msg: "- " + p.username}
+	p.inbox <- packet{hideNotif: true, sourceUsr: serverUser, destUsr: destUsr, msg: "Connected users:"}
+	p.inbox <- packet{hideNotif: true, sourceUsr: serverUser, destUsr: destUsr, msg: "- " + p.username}
 	clientsLock.RLock()
 	defer clientsLock.RUnlock()
 	for _, c := range p.clients {
 		if c.username != "" {
-			p.inbox <- packet{sourceUsr: serverUser, destUsr: destUsr, msg: "- " + c.username}
+			p.inbox <- packet{hideNotif: true, sourceUsr: serverUser, destUsr: destUsr, msg: "- " + c.username}
 		}
+	}
+}
+
+func (p *peer) notify(pk packet) {
+	if pk.msg == "" || pk.hideNotif {
+		return
+	}
+	notifyLock.Lock()
+	defer notifyLock.Unlock()
+	t := time.Now()
+	if t.Sub(p.lastNotify) > notifyCooldown {
+		p.lastNotify = t
+		cmd := fmt.Sprintf("command -v notify-send && notify-send 'lanchat: %v> %v'", pk.sourceUsr, pk.msg)
+		c := exec.Command("bash", "-c", cmd)
+		c.Run()
 	}
 }
