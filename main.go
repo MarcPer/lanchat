@@ -1,76 +1,22 @@
 package main
 
 import (
-	"bufio"
-	"bytes"
+	"context"
 	"flag"
-	"fmt"
-	"net"
-	"os/exec"
+
+	"github.com/MarcPer/lanchat/lan"
+	"github.com/MarcPer/lanchat/ui"
 )
 
 func main() {
 	var user = flag.String("u", "noone", "user name")
 	var local = flag.Bool("local", false, "whether to search for a running server in localhost")
+	var port = flag.Int("p", 6776, "port ")
 	flag.Parse()
-	ips := getIps()
+	toUi := make(chan ui.Packet, 2)    // used by client to send info to UI
+	fromUi := make(chan ui.Packet, 10) // used by UI to send info to client
+	client := &lan.Client{Name: *user, Local: *local, HostPort: *port, FromUI: fromUi, ToUI: toUi, Scanner: &lan.DefaultScanner{Local: *local}}
 
-	if *local {
-		ips = append(ips, net.IPv4(127, 0, 0, 1))
-	}
-	url, found := searchServer(ips)
-	var server bool
-
-	if found {
-		fmt.Printf("found in %s\n", url)
-	} else {
-		fmt.Println("no active servers found. Starting one.")
-		server = true
-	}
-	p := New(*user, server)
-	p.Start(url)
-}
-
-func getIps() []net.IP {
-	cmd := `arp | awk '$1 ~ /^[0-9\.]+$/ {print $1}' | uniq`
-	c := exec.Command("bash", "-c", cmd)
-	var b bytes.Buffer
-	c.Stdout = &b
-	c.Run()
-
-	scanner := bufio.NewScanner(&b)
-
-	ips := make([]net.IP, 0, 8)
-	for scanner.Scan() {
-		rawIp := scanner.Text()
-		ip := net.ParseIP(rawIp)
-		if ip != nil {
-			if !ip.IsLoopback() && ip[len(ip)-1] != 255 {
-				ips = append(ips, ip)
-			}
-		}
-	}
-
-	return ips
-}
-
-func searchServer(ips []net.IP) (string, bool) {
-	found := false
-	fmt.Print("Searching for active server... ")
-	var url string
-	for _, ip := range ips {
-		url = fmt.Sprintf("%s:%d", ip, ChatPort)
-		conn, err := net.Dial("tcp", url)
-		if err == nil {
-			conn.Close()
-			found = true
-			break
-		}
-	}
-
-	if found {
-		return url, found
-	} else {
-		return "", found
-	}
+	ctx := context.Background()
+	client.Start(ctx)
 }
