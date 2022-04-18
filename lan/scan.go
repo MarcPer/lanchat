@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"os/exec"
+
+	"github.com/MarcPer/lanchat/logger"
 )
 
 type NetScanner interface {
@@ -52,6 +54,7 @@ func scanHost(ips []net.IP, chatPort int) (string, bool) {
 	var url string
 	for _, ip := range ips {
 		url = fmt.Sprintf("%s:%d", ip, chatPort)
+		logger.Debugf("scanning %s\n", url)
 		conn, err := net.Dial("tcp", url)
 		if err == nil {
 			conn.Close()
