@@ -1,6 +1,7 @@
 package logger
 
 import (
+	"io"
 	"log"
 	"os"
 )
@@ -27,6 +28,13 @@ func init() {
 	infoLogger = log.New(out, "[I]", log.Ldate|log.Ltime)
 	warnLogger = log.New(out, "[W]", log.Ldate|log.Ltime)
 	errLogger = log.New(out, "[E]", log.Ldate|log.Ltime)
+}
+
+func Init(w io.Writer) {
+	debugLogger = log.New(w, "[D]", log.Ldate|log.Ltime|log.Lshortfile)
+	infoLogger = log.New(w, "[I]", log.Ldate|log.Ltime)
+	warnLogger = log.New(w, "[W]", log.Ldate|log.Ltime)
+	errLogger = log.New(w, "[E]", log.Ldate|log.Ltime)
 }
 
 func Debug(msg string) {

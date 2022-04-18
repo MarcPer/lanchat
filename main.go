@@ -23,6 +23,7 @@ func main() {
 	client.Start(ctx)
 	logger.Infof("Starting UI\n")
 	renderer := ui.New(*user, toUI, fromUI)
+	logger.Init(&renderer)
 	renderer.Run()
 
 	cancel()
