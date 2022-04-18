@@ -4,16 +4,19 @@ import (
 	"context"
 	"encoding/gob"
 	"fmt"
+	"io"
 	"net"
 	"os"
+	"strings"
 	"sync"
 
+	"github.com/MarcPer/lanchat/logger"
 	"github.com/MarcPer/lanchat/ui"
 )
 
 type peerID string
 
-var peersMu sync.Mutex
+var peersMu sync.RWMutex
 
 type MsgType int
 
@@ -24,51 +27,56 @@ const (
 
 type Packet struct {
 	Msg  string
-	Type MsgType
+	Type int
 }
 
 type peer struct {
 	name string
-	conn net.Conn
+	conn *net.Conn
+	enc  *gob.Encoder
 }
 
 type Client struct {
 	Name     string
-	Local    bool
 	HostPort int
 	ToUI     chan ui.Packet
 	FromUI   chan ui.Packet
 	Scanner  NetScanner
 	host     bool
-	peers    map[peerID]peer
+	peers    map[peerID]*peer
 }
 
 func (c *Client) Start(ctx context.Context) {
-	c.peers = make(map[peerID]peer)
+	c.peers = make(map[peerID]*peer)
 	host, found := c.Scanner.FindHost(c.HostPort)
 	c.host = !found
 	if found { // host found, so become regular peer
-		url := fmt.Sprintf("%s:%d", host, c.HostPort)
-		conn, err := net.Dial("tcp", url)
+		logger.Infof("Found host at %s; connecting... \n", host)
+		conn, err := net.Dial("tcp", host)
 		if err != nil {
-			fmt.Printf("Could not connect to host: %v\n", err)
+			logger.Errorf("Could not connect to host: %v\n", err)
 			os.Exit(1)
 		}
 		var pid peerID = peerID(conn.RemoteAddr().String())
-		c.peers[pid] = peer{name: conn.RemoteAddr().String(), conn: conn}
+		enc := gob.NewEncoder(conn)
+		peersMu.Lock()
+		defer peersMu.Unlock()
+		c.peers[pid] = &peer{conn: &conn, enc: enc}
+		c.transmit(Packet{Type: MsgTypeCmd, Msg: ":id " + c.Name}, pid)
 		go c.handleConn(pid)
 	} else { // become a host
+		logger.Infof("No host found; starting server in 0.0.0.0:%d ... \n", c.HostPort)
 		go c.serve(ctx)
 	}
 
-	c.handleUIPackets(ctx)
+	go c.handleUIPackets(ctx)
 }
 
 func (c *Client) serve(ctx context.Context) {
 	url := fmt.Sprintf(":%d", c.HostPort)
 	ln, err := net.Listen("tcp", url)
 	if err != nil {
-		fmt.Printf("Could not start server: %v\n", err)
+		logger.Errorf("Could not start server: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -78,9 +86,10 @@ func (c *Client) serve(ctx context.Context) {
 		for {
 			conn, err := l.Accept()
 			if err != nil {
-				fmt.Printf("Failed to accept connection: %v", err)
+				logger.Debugf("serve: %v\n", err)
 				return
 			} else {
+				logger.Debugf("new connection from %v\n", conn.RemoteAddr().String())
 				ch <- conn
 			}
 		}
@@ -91,7 +100,8 @@ func (c *Client) serve(ctx context.Context) {
 		case conn := <-connCh:
 			var pid peerID = peerID(conn.RemoteAddr().String())
 			peersMu.Lock()
-			c.peers[pid] = peer{conn: conn}
+			enc := gob.NewEncoder(conn)
+			c.peers[pid] = &peer{conn: &conn, enc: enc}
 			peersMu.Unlock()
 			go c.handleConn(pid)
 		case <-ctx.Done():
@@ -102,20 +112,33 @@ func (c *Client) serve(ctx context.Context) {
 }
 
 func (c *Client) handleConn(pid peerID) {
+	peersMu.Lock()
 	peer, ok := c.peers[pid]
+	peersMu.Unlock()
 	if !ok {
-		fmt.Printf("handleConn: peer with ID=%v not found\n", pid)
+		logger.Debugf("handleConn: peer with ID=%v not found\n", pid)
 		return
 	}
-	dec := gob.NewDecoder(peer.conn)
+	dec := gob.NewDecoder(*peer.conn)
 	for {
 		var pkt Packet
 		err := dec.Decode(&pkt)
-		if err != nil {
-			fmt.Printf("handleConn: error decoding packet %v\n", err)
+		if err == io.EOF {
+			if peer.name != "" {
+				logger.Infof("connection closed by peer %s\n", pid)
+			}
+			c.cleanPeer(pid)
 			return
+		} else if err != nil {
+			logger.Errorf("handleConn: error decoding packet %v\n", err)
+			// return
 		} else {
-			c.ToUI <- ui.Packet{User: peer.name, Msg: pkt.Msg}
+			if pkt.Type == MsgTypeCmd {
+				c.processCommand(pkt, pid)
+			} else if pkt.Type == MsgTypeChat {
+				logger.Debugf("p=%+v, msg=%q\n", pkt, pkt.Msg)
+				c.ToUI <- ui.Packet{User: peer.name, Msg: pkt.Msg}
+			}
 		}
 	}
 }
@@ -124,26 +147,76 @@ func (c *Client) handleUIPackets(ctx context.Context) {
 	for {
 		select {
 		case p := <-c.FromUI:
-			c.broadcast(Packet{Msg: p.Msg})
+			logger.Debugf("p=%+v, msg=%q\n", p, p.Msg)
+			var msgType int
+			if strings.HasPrefix(p.Msg, ":") {
+				msgType = MsgTypeCmd
+			} else {
+				msgType = MsgTypeChat
+			}
+			c.broadcast(Packet{Msg: p.Msg, Type: msgType})
 		case <-ctx.Done():
+			close(c.ToUI)
 			return
 		}
 	}
 }
 
 func (c *Client) broadcast(pkt Packet) {
+	peersMu.RLock()
 	for pid := range c.peers {
 		c.transmit(pkt, pid)
 	}
+	peersMu.RUnlock()
 }
 
 func (c *Client) transmit(pkt Packet, pid peerID) {
-	peer := c.peers[pid]
-	enc := gob.NewEncoder(peer.conn)
-	if err := enc.Encode(pkt); err != nil {
-		// failed to send data to peer
-		peersMu.Lock()
-		delete(c.peers, pid)
-		peersMu.Unlock()
+	peer, ok := c.peers[pid]
+	if !ok {
+		logger.Warnf("transmit: peer with ID=%v not found\n", pid)
+		return
 	}
+	if err := peer.enc.Encode(pkt); err != nil {
+		logger.Errorf("transmit: error encoding packet %v\n", err)
+		// failed to send data to peer
+		c.cleanPeer(pid)
+	}
+}
+
+func (c *Client) processCommand(pkt Packet, pid peerID) {
+	if !strings.HasPrefix(pkt.Msg, ":") {
+		logger.Warnf("invalid command: %v\n", pkt.Msg)
+		return
+	}
+	args := strings.Split(pkt.Msg, " ")
+
+	switch args[0] {
+	case ":id":
+		if len(args) != 2 || args[1] == "" {
+			logger.Warnf(":id needs a single, non-empty argument, received %v\n", args[1:])
+			return
+		}
+		peersMu.RLock()
+		defer peersMu.RUnlock()
+		if peer, ok := c.peers[pid]; ok {
+			var msg string
+			if peer.name == "" {
+				msg = fmt.Sprintf("user \"%s\" connected", args[1])
+				c.transmit(Packet{Type: MsgTypeCmd, Msg: ":id " + c.Name}, pid)
+			} else if peer.name == args[1] {
+				// nothing to do
+				return
+			} else {
+				msg = fmt.Sprintf("user \"%s\" changed their name to \"%s\"", peer.name, args[1])
+			}
+			peer.name = args[1]
+			c.ToUI <- ui.Packet{Msg: msg, Type: ui.PacketTypeAdmin}
+		}
+	}
+}
+
+func (c *Client) cleanPeer(pid peerID) {
+	peersMu.Lock()
+	delete(c.peers, pid)
+	peersMu.Unlock()
 }
