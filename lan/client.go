@@ -23,9 +23,11 @@ type MsgType int
 const (
 	MsgTypeChat = iota
 	MsgTypeCmd
+	MsgTypeAdmin
 )
 
 type Packet struct {
+	User string
 	Msg  string
 	Type int
 }
@@ -62,7 +64,7 @@ func (c *Client) Start(ctx context.Context) {
 		peersMu.Lock()
 		defer peersMu.Unlock()
 		c.peers[pid] = &peer{conn: &conn, enc: enc}
-		c.transmit(Packet{Type: MsgTypeCmd, Msg: ":id " + c.Name}, pid)
+		c.transmit(Packet{User: "", Type: MsgTypeCmd, Msg: ":id " + c.Name}, pid)
 		go c.handleConn(pid)
 	} else { // become a host
 		logger.Infof("No host found; starting server in 0.0.0.0:%d ... \n", c.HostPort)
@@ -133,12 +135,7 @@ func (c *Client) handleConn(pid peerID) {
 			logger.Errorf("handleConn: error decoding packet %v\n", err)
 			// return
 		} else {
-			if pkt.Type == MsgTypeCmd {
-				c.processCommand(pkt, pid)
-			} else if pkt.Type == MsgTypeChat {
-				logger.Debugf("p=%+v, msg=%q\n", pkt, pkt.Msg)
-				c.ToUI <- ui.Packet{User: peer.name, Msg: pkt.Msg}
-			}
+			handleInbound(c, pkt, pid)
 		}
 	}
 }
@@ -148,13 +145,7 @@ func (c *Client) handleUIPackets(ctx context.Context) {
 		select {
 		case p := <-c.FromUI:
 			logger.Debugf("p=%+v, msg=%q\n", p, p.Msg)
-			var msgType int
-			if strings.HasPrefix(p.Msg, ":") {
-				msgType = MsgTypeCmd
-			} else {
-				msgType = MsgTypeChat
-			}
-			c.broadcast(Packet{Msg: p.Msg, Type: msgType})
+			handleOutbound(c, p)
 		case <-ctx.Done():
 			close(c.ToUI)
 			return
@@ -162,9 +153,12 @@ func (c *Client) handleUIPackets(ctx context.Context) {
 	}
 }
 
-func (c *Client) broadcast(pkt Packet) {
+func (c *Client) broadcast(pkt Packet, except peerID) {
 	peersMu.RLock()
 	for pid := range c.peers {
+		if pid == except {
+			continue
+		}
 		c.transmit(pkt, pid)
 	}
 	peersMu.RUnlock()
@@ -219,4 +213,8 @@ func (c *Client) cleanPeer(pid peerID) {
 	peersMu.Lock()
 	delete(c.peers, pid)
 	peersMu.Unlock()
+}
+
+func (c *Client) logToUIf(format string, v ...interface{}) {
+	c.ToUI <- ui.Packet{Type: ui.PacketTypeAdmin, Msg: fmt.Sprintf(format, v...)}
 }
