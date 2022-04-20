@@ -2,12 +2,17 @@ package ui
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/MarcPer/lanchat/logger"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
+
+var EnableNotification bool
 
 type PacketType int
 
@@ -31,6 +36,7 @@ type UI struct {
 	app        *tview.Application
 	chat       *tview.TextView
 	input      *tview.InputField
+	lastNotify time.Time
 }
 
 func New(user string, fromClient chan Packet, toClient chan Packet) UI {
@@ -38,7 +44,20 @@ func New(user string, fromClient chan Packet, toClient chan Packet) UI {
 	chat := newTextView("").Clear()
 	app := tview.NewApplication()
 	input := newInputField(app, user)
+	grid.AddItem(chat, 0, 0, 1, 1, 0, 0, false)
+	grid.AddItem(input, 1, 0, 1, 1, 0, 0, true)
+	app.SetRoot(grid, true).SetFocus(input)
+
+	u := UI{
+		FromClient: fromClient,
+		ToClient:   toClient,
+		app:        app,
+		chat:       chat,
+		input:      input,
+		lastNotify: time.Now().Add(notifyCooldown),
+	}
 	input.SetDoneFunc(func(key tcell.Key) {
+		u.lastNotify = time.Now().Add(notifyCooldown)
 		if key == tcell.KeyEnter {
 			msg := input.GetText()
 			if msg == "" {
@@ -51,11 +70,9 @@ func New(user string, fromClient chan Packet, toClient chan Packet) UI {
 		}
 
 	})
-	grid.AddItem(chat, 0, 0, 1, 1, 0, 0, false)
-	grid.AddItem(input, 1, 0, 1, 1, 0, 0, true)
-	app.SetRoot(grid, true).SetFocus(input)
-
-	u := UI{FromClient: fromClient, ToClient: toClient, app: app, chat: chat, input: input}
+	input.SetChangedFunc(func(text string) {
+		u.lastNotify = time.Now().Add(notifyCooldown)
+	})
 	return u
 }
 
@@ -103,6 +120,7 @@ func (u *UI) processPackets() {
 func (u *UI) drawMsg(pkt Packet) func() {
 	return func() {
 		fmt.Fprintf(u.chat, "[yellow::b]%s> [-:-:-]%s[-:-:-]\n", pkt.User, pkt.Msg)
+		u.notify(pkt)
 	}
 }
 
@@ -129,6 +147,7 @@ func (u *UI) processCommand(pkt Packet) {
 		u.app.QueueUpdate(func() {
 			u.input.SetLabel(fmt.Sprintf("[%s::b]%s> [-:-:-]", selfColor, args[1]))
 			u.input.SetDoneFunc(func(key tcell.Key) {
+				u.lastNotify = time.Now().Add(notifyCooldown)
 				if key == tcell.KeyEnter {
 					msg := u.input.GetText()
 					if msg == "" {
@@ -142,5 +161,24 @@ func (u *UI) processCommand(pkt Packet) {
 
 			})
 		})
+	}
+}
+
+var notifyLock sync.Mutex
+
+const notifyCooldown = 60 * time.Second
+
+func (u *UI) notify(p Packet) {
+	if p.Msg == "" {
+		return
+	}
+	notifyLock.Lock()
+	defer notifyLock.Unlock()
+	t := time.Now()
+	if t.Sub(u.lastNotify) > notifyCooldown {
+		u.lastNotify = t
+		cmd := fmt.Sprintf("command -v notify-send && notify-send --category=im.received -u low --expire-time=5000 lanchat '%v> %v'", p.User, p.Msg)
+		c := exec.Command("bash", "-c", cmd)
+		c.Run()
 	}
 }
