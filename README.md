@@ -22,9 +22,24 @@ Download repository and run `make`.
 
 ## Plan
 
-- [ ] Handle broadcasts properly (host should forward messages to all clients)
+- [x] Handle broadcasts properly (host should forward messages to all clients)
+- [x] Fix handling of :id command: change own label
+- [x] Transmit administrative messages to all peers (e.g. "user 'bla' connected")
 - [ ] Add notifications with a cooldown
 - [ ] Tests
 - [ ] Configuration file
 - [ ] Become host if previous host disconnects
 - [ ] Add :help (and :h) command
+
+## Testing
+
+A crude integration test can be run with `make check`. It creates a chat with few users and runs some commands for inspection.
+
+## Architecture
+
+The app is separated into two components:
+- `Client`: Handles networking, sending and receiving messages, scanning for peers. It also parses both outbound and inbound messages to process commands (messages starting with `:`)
+- `UI`: Responsible for handling the user interface, both the chat window and notifications.
+
+Client and UI communicate to each other through two channels. For example, if the client receives a regular message, it will forward it to the UI to be rendered.
+
