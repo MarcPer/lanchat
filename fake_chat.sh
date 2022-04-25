@@ -36,12 +36,13 @@ cleanup() {
 }
 trap cleanup SIGHUP SIGINT SIGTERM
 
-tmux new-window -d -n fake_chat "bin/lanchat -u anna"
-sleep 0.1
-tmux split-window -h -t fake_chat "bin/lanchat -u bob"
-sleep 0.1
-tmux split-window -v -t fake_chat.right "bin/lanchat -u conan"
-sleep 0.1
+echo -n "Starting chats "
+tmux new-window -d -n fake_chat "bin/lanchat -u anna -l -f"
+sleep 3 && echo -n "."
+tmux split-window -h -t fake_chat "bin/lanchat -u bob -l"
+sleep 0.1 && echo -n "."
+tmux split-window -v -t fake_chat.right "bin/lanchat -u conan -l"
+sleep 0.1 && echo -n "."
 
 tmux send-keys -t fake_chat.left "hello, my friend" Enter
 sleep 0.1
@@ -61,6 +62,7 @@ if [[ $multi_pane -gt 1 ]] ; then
 fi
 tmux select-window -t fake_chat
 
+echo ""
 read -n 1 -s -r -p "Press any key to close"
 echo ""
 cleanup
