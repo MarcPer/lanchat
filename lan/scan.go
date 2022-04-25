@@ -15,6 +15,12 @@ type NetScanner interface {
 	FindHost(int) (string, bool)
 }
 
+type NullScanner struct{}
+
+func (s *NullScanner) FindHost(port int) (string, bool) {
+	return "", false
+}
+
 type DefaultScanner struct {
 	Local bool
 }
@@ -90,11 +96,12 @@ func hostRange(targets []targetRange) []string {
 
 func (s *DefaultScanner) scanHost(ips []string, chatPort int) (string, bool) {
 	if s.Local {
-		if len(ips) < 1 {
-			ips = append(ips, "127.0.0.1")
-		} else {
-			ips = append(ips, ips[len(ips)-1])
-			ips[0] = "127.0.0.1"
+		url := fmt.Sprintf("%s:%d", "127.0.0.1", chatPort)
+		logger.Debugf("scanning %s\n", url)
+		conn, err := net.DialTimeout("tcp", url, 100*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			return url, true
 		}
 	}
 
