@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 
 	"github.com/MarcPer/lanchat/lan"
@@ -11,20 +10,17 @@ import (
 )
 
 func main() {
-	var user = flag.String("u", "noone", "user name")
-	var local = flag.Bool("local", true, "whether to search for a running server in localhost")
-	var notify = flag.Bool("notify", true, "whether to send system notifications upon message receivals. Notifications have a cooldown time.")
-	var port = flag.Int("p", 6776, "port ")
-	flag.Parse()
-	ui.EnableNotification = *notify
+	cfg := newConfig()
+	fmt.Printf("%+v\n", cfg)
+	ui.EnableNotification = cfg.notify
 	toUI := make(chan ui.Packet, 2)    // used by client to send info to UI
 	fromUI := make(chan ui.Packet, 10) // used by UI to send info to client
-	client := &lan.Client{Name: *user, HostPort: *port, FromUI: fromUI, ToUI: toUI, Scanner: &lan.DefaultScanner{Local: *local}}
+	client := &lan.Client{Name: cfg.username, HostPort: cfg.port, FromUI: fromUI, ToUI: toUI, Scanner: &lan.DefaultScanner{Local: cfg.local}}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	client.Start(ctx)
 	logger.Infof("Starting UI\n")
-	renderer := ui.New(*user, toUI, fromUI)
+	renderer := ui.New(cfg.username, toUI, fromUI)
 	logger.Init(&renderer)
 	renderer.Run()
 
