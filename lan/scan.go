@@ -1,11 +1,12 @@
 package lan
 
 import (
-	"bufio"
-	"bytes"
+	"context"
+	"encoding/binary"
 	"fmt"
 	"net"
-	"os/exec"
+	"sync"
+	"time"
 
 	"github.com/MarcPer/lanchat/logger"
 )
@@ -19,53 +20,145 @@ type DefaultScanner struct {
 }
 
 func (s *DefaultScanner) FindHost(port int) (string, bool) {
-	ips := s.getIPs()
-	return scanHost(ips, port)
+	targets, err := findTargets()
+	if err != nil {
+		logger.Errorf("FindHost: %v\n", err)
+		return "", false
+	}
+	hosts := hostRange(targets)
+
+	return s.scanHost(hosts, port)
 }
 
-func (s *DefaultScanner) getIPs() []net.IP {
-	ips := make([]net.IP, 0)
-	if s.Local {
-		ips = append(ips, net.IPv4(127, 0, 0, 1))
+type targetRange struct {
+	selfIP string // IP from caller, to exclude from scan
+	netIP  string // IPNet network in CIDR notation
+}
+
+// Returns list of target IP ranges to scan
+func findTargets() ([]targetRange, error) {
+	out := make([]targetRange, 0, 4)
+	ifcs, err := net.Interfaces()
+	if err != nil {
+		return out, err
 	}
-
-	cmd := `arp | awk '$1 ~ /^[0-9\.]+$/ {print $1}' | uniq`
-	c := exec.Command("bash", "-c", cmd)
-	var b bytes.Buffer
-	c.Stdout = &b
-	c.Run()
-
-	scanner := bufio.NewScanner(&b)
-
-	for scanner.Scan() {
-		rawIp := scanner.Text()
-		ip := net.ParseIP(rawIp)
-		if ip != nil {
-			if !ip.IsLoopback() && ip[len(ip)-1] != 255 {
-				ips = append(ips, ip)
+	for _, ifc := range ifcs {
+		addrs, err := ifc.Addrs()
+		if err != nil {
+			return out, err
+		}
+		for _, address := range addrs {
+			if ipnet, ok := address.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+				if ipnet.IP.To4() != nil {
+					t := targetRange{ipnet.IP.String(), ipnet.String()}
+					out = append(out, t)
+					return out, nil
+				}
 			}
 		}
 	}
-	return ips
+
+	return out, nil
 }
 
-func scanHost(ips []net.IP, chatPort int) (string, bool) {
-	var found bool
-	var url string
-	for _, ip := range ips {
-		url = fmt.Sprintf("%s:%d", ip, chatPort)
-		logger.Debugf("scanning %s\n", url)
-		conn, err := net.Dial("tcp", url)
-		if err == nil {
-			conn.Close()
-			found = true
-			break
+func hostRange(targets []targetRange) []string {
+	var hosts []string
+	for _, t := range targets {
+		_, ipv4Net, err := net.ParseCIDR(t.netIP)
+		if err != nil {
+			logger.Errorf("hostRange: %v\n", err)
+			return []string{}
+		}
+
+		mask := binary.BigEndian.Uint32(ipv4Net.Mask)
+		start := binary.BigEndian.Uint32(ipv4Net.IP)
+		finish := (start & mask) | (mask ^ 0xffffffff)
+
+		for i := start + 1; i <= finish-1; i++ {
+			ip := make(net.IP, 4)
+			binary.BigEndian.PutUint32(ip, i)
+			if ip.String() == t.selfIP {
+				continue
+			}
+			hosts = append(hosts, ip.String())
+		}
+
+	}
+
+	return hosts
+}
+
+func (s *DefaultScanner) scanHost(ips []string, chatPort int) (string, bool) {
+	if s.Local {
+		if len(ips) < 1 {
+			ips = append(ips, "127.0.0.1")
+		} else {
+			ips = append(ips, ips[len(ips)-1])
+			ips[0] = "127.0.0.1"
 		}
 	}
 
-	if found {
-		return url, found
-	} else {
-		return "", found
+	if len(ips) < 1 {
+		logger.Infof("No hosts to scan\n")
+		return "", false
+	}
+
+	hostInCh := make(chan string)
+	logger.Infof("Scanning %d hosts\n", len(ips))
+	go func(ch chan string) {
+		for _, host := range ips {
+			hostInCh <- host
+		}
+		close(ch)
+	}(hostInCh)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	resCh := make(chan string)
+	wg.Add(numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		go popScan(ctx, chatPort, hostInCh, resCh)
+	}
+
+	done := make(chan bool)
+	go func() {
+		wg.Wait()
+		done <- true
+
+	}()
+
+	select {
+	case url := <-resCh:
+		cancel()
+		return url, true
+	case <-done:
+		cancel()
+		return "", false
+	}
+}
+
+var wg sync.WaitGroup
+
+const numWorkers = 15
+
+func popScan(ctx context.Context, chatPort int, in chan string, out chan string) {
+	for {
+		select {
+		case <-ctx.Done():
+			wg.Done()
+			return
+		case host, ok := <-in:
+			if !ok {
+				wg.Done()
+				return
+			}
+			url := fmt.Sprintf("%s:%d", host, chatPort)
+			logger.Debugf("scanning %s\n", url)
+			conn, err := net.DialTimeout("tcp", url, 100*time.Millisecond)
+			if err == nil {
+				conn.Close()
+				out <- url
+				return
+			}
+		}
 	}
 }

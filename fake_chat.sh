@@ -24,7 +24,7 @@ active_pane=$(tmux list-panes -F "#{pane_active} #{pane_index}" | awk '$1 == 1 {
 
 cleanup() {
 	if [[ $multi_pane -gt 1 ]] ; then
-		tmux join-pane -t "${active_window}.right"
+		tmux join-pane -t "${active_window}.right" 2>/dev/null
 		sleep 0.1
 	fi
 	if [[ $NEW_SESSION -eq 1 ]]; then

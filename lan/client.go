@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/MarcPer/lanchat/logger"
 	"github.com/MarcPer/lanchat/ui"
@@ -68,6 +69,7 @@ func (c *Client) Start(ctx context.Context) {
 		go c.handleConn(pid)
 	} else { // become a host
 		logger.Infof("No host found; starting server in 0.0.0.0:%d ... \n", c.HostPort)
+		time.Sleep(2 * time.Second)
 		go c.serve(ctx)
 	}
 
