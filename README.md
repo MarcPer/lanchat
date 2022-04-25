@@ -12,7 +12,7 @@ Download the binary and run it:
 ./lanchat -u my_user
 ```
 
-Run `./lanchat -h` to see allowed flags.
+Run `./lanchat -h` to see available flags. Besides command line flags, options can be passed via a configuration file (see the [configuration file section](#configuration-file) below).
 
 The program automatically detects if there's already a running _Lanchat_ server in the local network and connects to it. If there isn't, the command starts one on port _6776_.
 
@@ -29,7 +29,7 @@ Download repository and run `make`.
 - [x] Transmit administrative messages to all peers (e.g. "user 'bla' connected")
 - [x] Add notifications with a cooldown
 - [ ] Tests
-- [ ] Configuration file
+- [x] Configuration file
 - [ ] Become host if previous host disconnects; ping peers periodically
 - [ ] Add :help (and :h) command
 
@@ -44,4 +44,21 @@ The app is separated into two components:
 - `UI`: Responsible for handling the user interface, both the chat window and notifications.
 
 Client and UI communicate to each other through two channels. For example, if the client receives a regular message, it will forward it to the UI to be rendered.
+
+## Configuration file
+
+A filepath can be passed to _lanchat_ for configuration with:
+
+```
+./lanchat -c my_config.toml
+```
+
+Below is an example TOML:
+
+```toml
+username = icarus # default 'noone'
+port = 6777       # default 6776
+local = true      # default false
+notify = false    # default true
+```
 
