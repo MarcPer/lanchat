@@ -35,7 +35,7 @@ type Packet struct {
 
 type peer struct {
 	name string
-	conn *net.Conn
+	conn io.Reader
 	enc  *gob.Encoder
 }
 
@@ -64,7 +64,7 @@ func (c *Client) Start(ctx context.Context) {
 		enc := gob.NewEncoder(conn)
 		peersMu.Lock()
 		defer peersMu.Unlock()
-		c.peers[pid] = &peer{conn: &conn, enc: enc}
+		c.peers[pid] = &peer{conn: conn, enc: enc}
 		c.transmit(Packet{User: "", Type: MsgTypeCmd, Msg: ":id " + c.Name}, pid)
 		go c.handleConn(pid)
 	} else { // become a host
@@ -105,7 +105,7 @@ func (c *Client) serve(ctx context.Context) {
 			var pid peerID = peerID(conn.RemoteAddr().String())
 			peersMu.Lock()
 			enc := gob.NewEncoder(conn)
-			c.peers[pid] = &peer{conn: &conn, enc: enc}
+			c.peers[pid] = &peer{conn: conn, enc: enc}
 			peersMu.Unlock()
 			go c.handleConn(pid)
 		case <-ctx.Done():
@@ -123,7 +123,7 @@ func (c *Client) handleConn(pid peerID) {
 		logger.Debugf("handleConn: peer with ID=%v not found\n", pid)
 		return
 	}
-	dec := gob.NewDecoder(*peer.conn)
+	dec := gob.NewDecoder(peer.conn)
 	for {
 		var pkt Packet
 		err := dec.Decode(&pkt)
