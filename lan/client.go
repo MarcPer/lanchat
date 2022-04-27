@@ -5,8 +5,8 @@ import (
 	"encoding/gob"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +25,7 @@ const (
 	MsgTypeChat = iota
 	MsgTypeCmd
 	MsgTypeAdmin
+	MsgTypePing
 )
 
 type Packet struct {
@@ -47,33 +48,81 @@ type Client struct {
 	Scanner  NetScanner
 	host     bool
 	peers    map[peerID]*peer
+	ctx      context.Context
+	cancel   context.CancelFunc
+	restart  chan int
 }
 
 func (c *Client) Start(ctx context.Context) {
+	if ctx != nil {
+		c.ctx = ctx
+	}
+	c.restart = make(chan int)
+	go c.monitor()
+	c.retry(0)
+}
+
+func (c *Client) run(ctx context.Context) {
 	c.peers = make(map[peerID]*peer)
+	c.logToUIf("Scanning for hosts")
 	host, found := c.Scanner.FindHost(c.HostPort)
 	c.host = !found
 	if found { // host found, so become regular peer
-		logger.Infof("Found host at %s; connecting... \n", host)
+		c.logToUIf("Found host at %s; connecting...", host)
 		conn, err := net.Dial("tcp", host)
 		if err != nil {
 			logger.Errorf("Could not connect to host: %v\n", err)
-			os.Exit(1)
+			c.retry(-1)
+			return
 		}
 		var pid peerID = peerID(conn.RemoteAddr().String())
 		enc := gob.NewEncoder(conn)
 		peersMu.Lock()
-		defer peersMu.Unlock()
 		c.peers[pid] = &peer{conn: conn, enc: enc}
+		peersMu.Unlock()
 		c.transmit(Packet{User: "", Type: MsgTypeCmd, Msg: ":id " + c.Name}, pid)
 		go c.handleConn(pid)
 	} else { // become a host
-		logger.Infof("No host found; starting server in 0.0.0.0:%d ... \n", c.HostPort)
-		time.Sleep(2 * time.Second)
+		c.logToUIf("No host found; starting server at 0.0.0.0:%d ...", c.HostPort)
 		go c.serve(ctx)
 	}
 
 	go c.handleUIPackets(ctx)
+	go c.ping(ctx)
+
+}
+
+func (c *Client) monitor() {
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case t := <-c.restart:
+			if c.cancel != nil {
+				c.cancel()
+			}
+			subCtx, cancel := context.WithCancel(c.ctx)
+			c.cancel = cancel
+
+			// Wait a random time before starting again, to avoid two peers
+			// trying to become a host simultaneously
+			// A more reliable scheme should be used, in which peers
+			// know about the existence of others, not just the host.
+			// They can then coordinate better in such cases.
+			time.Sleep(time.Duration(t) * time.Millisecond)
+			go c.run(subCtx)
+
+		}
+	}
+}
+
+// takes time to wait before restarting, in milliseconds
+// if < 0, sets it to be a random value
+func (c *Client) retry(t int) {
+	if t < 0 {
+		t = rand.Intn(8000)
+	}
+	c.restart <- t
 }
 
 func (c *Client) serve(ctx context.Context) {
@@ -81,7 +130,8 @@ func (c *Client) serve(ctx context.Context) {
 	ln, err := net.Listen("tcp", url)
 	if err != nil {
 		logger.Errorf("Could not start server: %v\n", err)
-		os.Exit(1)
+		c.retry(-1)
+		return
 	}
 
 	connCh := make(chan net.Conn)
@@ -129,7 +179,9 @@ func (c *Client) handleConn(pid peerID) {
 		err := dec.Decode(&pkt)
 		if err == io.EOF {
 			if peer.name != "" {
-				logger.Infof("connection closed by peer %s\n", pid)
+				msg := fmt.Sprintf("'%s' disconnected\n", peer.name)
+				c.logToUI(msg)
+				c.broadcast(Packet{Msg: msg, Type: MsgTypeAdmin}, pid)
 			}
 			c.cleanPeer(pid)
 			return
@@ -149,7 +201,21 @@ func (c *Client) handleUIPackets(ctx context.Context) {
 			logger.Debugf("p=%+v, msg=%q\n", p, p.Msg)
 			handleOutbound(c, p)
 		case <-ctx.Done():
-			close(c.ToUI)
+			return
+		}
+	}
+}
+
+var pingPacket = Packet{Type: MsgTypePing}
+
+func (c *Client) ping(ctx context.Context) {
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			c.broadcast(pingPacket, "")
+		case <-ctx.Done():
 			return
 		}
 	}
@@ -214,7 +280,15 @@ func (c *Client) processCommand(pkt Packet, pid peerID) {
 func (c *Client) cleanPeer(pid peerID) {
 	peersMu.Lock()
 	delete(c.peers, pid)
-	peersMu.Unlock()
+	defer peersMu.Unlock()
+
+	if !c.host && len(c.peers) < 1 {
+		c.retry(-1)
+	}
+}
+
+func (c *Client) logToUI(msg string) {
+	c.ToUI <- ui.Packet{Type: ui.PacketTypeAdmin, Msg: msg}
 }
 
 func (c *Client) logToUIf(format string, v ...interface{}) {

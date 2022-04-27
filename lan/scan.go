@@ -111,7 +111,7 @@ func (s *DefaultScanner) scanHost(ips []string, chatPort int) (string, bool) {
 	}
 
 	hostInCh := make(chan string)
-	logger.Infof("Scanning %d hosts\n", len(ips))
+	logger.Debugf("Scanning %d hosts\n", len(ips))
 	go func(ch chan string) {
 		for _, host := range ips {
 			hostInCh <- host
