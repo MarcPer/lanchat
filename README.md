@@ -38,6 +38,7 @@ Download repository and run `make`.
 - [ ] Show current peers with :info
 - [ ] Show currently connected peers on a side tab
 - [ ] More tests
+- [ ] Move to Go 1.18. There are functions that could be merged with generics (compareUIPackets and compareNetPackets, for example). Add fuzzing tests.
 
 ## Testing
 
