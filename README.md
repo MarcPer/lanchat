@@ -1,5 +1,7 @@
 # Lanchat
 
+![go](https://github.com/MarcPer/lanchat/actions/workflows/go.yml/badge.svg)
+
 Chat on the terminal over the local network.
 
 > Tested only on Linux.
