@@ -14,3 +14,6 @@ test:
 check: bin/lanchat
 	@./fake_chat.sh
 
+.PHONY: test
+test:
+	@go test -race ./...
