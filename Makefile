@@ -8,12 +8,9 @@ bin/lanchat: main.go config.go ui/*.go lan/*.go logger/*.go
 
 .PHONY: test
 test:
-	go test -race ./...
+	@go test -race ./...
 
 .PHONY: check
 check: bin/lanchat
 	@./fake_chat.sh
 
-.PHONY: test
-test:
-	@go test -race ./...

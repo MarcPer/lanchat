@@ -22,12 +22,13 @@ func main() {
 		scanner = &lan.DefaultScanner{Local: cfg.local}
 
 	}
-	client := &lan.Client{Name: cfg.username, HostPort: cfg.port, FromUI: fromUI, ToUI: toUI, Scanner: scanner}
-	ctx, cancel := context.WithCancel(context.Background())
-	client.Start(ctx)
 	logger.Infof("Starting UI\n")
 	renderer := ui.New(cfg.username, toUI, fromUI)
 	logger.Init(&renderer)
+
+	client := &lan.Client{Name: cfg.username, HostPort: cfg.port, FromUI: fromUI, ToUI: toUI, Scanner: scanner}
+	ctx, cancel := context.WithCancel(context.Background())
+	client.Start(ctx)
 	renderer.Run()
 
 	cancel()

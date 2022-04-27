@@ -18,7 +18,7 @@ Run `./lanchat -h` to see available flags. Besides command line flags, options c
 
 The program automatically detects if there's already a running _Lanchat_ server in the local network and connects to it. If there isn't, the command starts one on port _6776_.
 
-Start typing to chat, or run one of the available commands (enter `:h` to see a list).
+Start typing to chat, or run one of the available commands (enter `:help` to see what these are).
 
 ### Build from source
 
@@ -30,10 +30,14 @@ Download repository and run `make`.
 - [x] Fix handling of :id command: change own label
 - [x] Transmit administrative messages to all peers (e.g. "user 'bla' connected")
 - [x] Add notifications with a cooldown
-- [ ] Tests
 - [x] Configuration file
-- [ ] Become host if previous host disconnects; ping peers periodically
-- [ ] Add :help (and :h) command
+- [x] Become host if previous host disconnects; ping peers periodically
+- [x] Add :help command
+- [ ] Every peer should know about all others, not just the host.
+- [ ] Use peer information to make host reelection more reliable
+- [ ] Show current peers with :info
+- [ ] Show currently connected peers on a side tab
+- [ ] More tests
 
 ## Testing
 
@@ -58,9 +62,10 @@ A filepath can be passed to _lanchat_ for configuration with:
 Below is an example TOML:
 
 ```toml
-username = icarus # default 'noone'
-port = 6777       # default 6776
-local = true      # default false
-notify = false    # default true
+username = "icarus" # default 'noone'
+port = 6777         # default 6776
+local = true        # default false
+notify = false      # default true
+force-host = true   # default false
 ```
 
