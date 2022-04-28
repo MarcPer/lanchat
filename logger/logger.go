@@ -14,13 +14,13 @@ var (
 )
 
 const (
-	logLevelErr = iota
-	logLevelWarn
-	logLevelInfo
-	logLevelDebug
+	LogLevelErr = iota
+	LogLevelWarn
+	LogLevelInfo
+	LogLevelDebug
 )
 
-const LogLevel = logLevelInfo
+const LogLevel = LogLevelInfo
 
 func init() {
 	out := os.Stdout
@@ -31,56 +31,59 @@ func init() {
 }
 
 func Init(w io.Writer) {
-	debugLogger = log.New(w, "[D]", log.Ldate|log.Ltime|log.Lshortfile)
-	infoLogger = log.New(w, "[I]", log.Ldate|log.Ltime)
-	warnLogger = log.New(w, "[W]", log.Ldate|log.Ltime)
-	errLogger = log.New(w, "[E]", log.Ldate|log.Ltime)
+	infoLogger.SetOutput(w)
+	warnLogger.SetOutput(w)
+	errLogger.SetOutput(w)
+}
+
+func InitDebug(w io.Writer) {
+	debugLogger.SetOutput(w)
 }
 
 func Debug(msg string) {
-	if LogLevel >= logLevelDebug {
+	if LogLevel >= LogLevelDebug {
 		debugLogger.Print(msg)
 	}
 }
 
 func Debugf(format string, v ...interface{}) {
-	if LogLevel >= logLevelDebug {
+	if LogLevel >= LogLevelDebug {
 		debugLogger.Printf(format, v...)
 	}
 }
 
 func Info(msg string) {
-	if LogLevel >= logLevelInfo {
+	if LogLevel >= LogLevelInfo {
 		infoLogger.Print(msg)
 	}
 }
 
 func Infof(format string, v ...interface{}) {
-	if LogLevel >= logLevelInfo {
+	if LogLevel >= LogLevelInfo {
 		infoLogger.Printf(format, v...)
 	}
 }
 
 func Warn(msg string) {
-	if LogLevel >= logLevelWarn {
+	if LogLevel >= LogLevelWarn {
 		warnLogger.Print(msg)
 	}
 }
 
 func Warnf(format string, v ...interface{}) {
-	if LogLevel >= logLevelWarn {
+	if LogLevel >= LogLevelWarn {
 		warnLogger.Printf(format, v...)
 	}
 }
 
 func Error(msg string) {
-	if LogLevel >= logLevelErr {
+	if LogLevel >= LogLevelErr {
 		errLogger.Print(msg)
 	}
 }
 
 func Errorf(format string, v ...interface{}) {
-	if LogLevel >= logLevelErr {
+	if LogLevel >= LogLevelErr {
 		errLogger.Printf(format, v...)
 	}
 }
