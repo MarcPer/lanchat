@@ -1,3 +1,4 @@
 lanchat
 .vscode
 bin/
+*.log

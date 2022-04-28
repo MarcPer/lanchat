@@ -112,12 +112,12 @@ func (s *DefaultScanner) scanHost(ips []string, chatPort int) (string, bool) {
 
 	hostInCh := make(chan string)
 	logger.Debugf("Scanning %d hosts\n", len(ips))
-	go func(ch chan string) {
+	go func() {
 		for _, host := range ips {
 			hostInCh <- host
 		}
-		close(ch)
-	}(hostInCh)
+		close(hostInCh)
+	}()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	resCh := make(chan string)
@@ -145,7 +145,8 @@ func (s *DefaultScanner) scanHost(ips []string, chatPort int) (string, bool) {
 
 var wg sync.WaitGroup
 
-const numWorkers = 15
+const numWorkers = 10
+const timeout = 100 * time.Millisecond
 
 func popScan(ctx context.Context, chatPort int, in chan string, out chan string) {
 	for {
@@ -159,11 +160,12 @@ func popScan(ctx context.Context, chatPort int, in chan string, out chan string)
 				return
 			}
 			url := fmt.Sprintf("%s:%d", host, chatPort)
-			logger.Debugf("scanning %s\n", url)
-			conn, err := net.DialTimeout("tcp", url, 100*time.Millisecond)
+			logger.Debugf("scanning %s", url)
+			conn, err := net.DialTimeout("tcp", url, timeout)
 			if err == nil {
 				conn.Close()
 				out <- url
+				wg.Done()
 				return
 			}
 		}
