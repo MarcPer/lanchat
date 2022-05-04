@@ -47,8 +47,8 @@ func readFromPeer(c *Client, peerIdx int) (out []Packet, err error) {
 		e := dec.Decode(&pkt)
 		if e == io.EOF {
 			return
-		} else if err != nil {
-			e = fmt.Errorf("error decoding peer packet: %v", err)
+		} else if e != nil {
+			err = fmt.Errorf("error decoding peer packet: %v", e)
 			return
 		} else {
 			out = append(out, pkt)

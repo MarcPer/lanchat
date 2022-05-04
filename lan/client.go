@@ -7,7 +7,6 @@ import (
 	"io"
 	"math/rand"
 	"net"
-	"strings"
 	"sync"
 	"time"
 
@@ -89,7 +88,6 @@ func (c *Client) run(ctx context.Context) {
 
 	go c.handleUIPackets(ctx)
 	go c.ping(ctx)
-
 }
 
 func (c *Client) monitor() {
@@ -103,6 +101,8 @@ func (c *Client) monitor() {
 			}
 			subCtx, cancel := context.WithCancel(c.ctx)
 			c.cancel = cancel
+			c.host = true // this prevents disconnections from triggering another, possibly concurrent, restart
+			// check the cleanPeer method to understand why.
 
 			// Wait a random time before starting again, to avoid two peers
 			// trying to become a host simultaneously
@@ -111,7 +111,6 @@ func (c *Client) monitor() {
 			// They can then coordinate better in such cases.
 			time.Sleep(time.Duration(t) * time.Millisecond)
 			go c.run(subCtx)
-
 		}
 	}
 }
@@ -245,42 +244,10 @@ func (c *Client) transmit(pkt Packet, pid peerID) {
 	}
 }
 
-func (c *Client) processCommand(pkt Packet, pid peerID) {
-	if !strings.HasPrefix(pkt.Msg, ":") {
-		logger.Warnf("invalid command: %v\n", pkt.Msg)
-		return
-	}
-	args := strings.Split(pkt.Msg, " ")
-
-	switch args[0] {
-	case ":id":
-		if len(args) != 2 || args[1] == "" {
-			logger.Warnf(":id needs a single, non-empty argument, received %v\n", args[1:])
-			return
-		}
-		peersMu.RLock()
-		defer peersMu.RUnlock()
-		if peer, ok := c.peers[pid]; ok {
-			var msg string
-			if peer.name == "" {
-				msg = fmt.Sprintf("user \"%s\" connected", args[1])
-				c.transmit(Packet{Type: MsgTypeCmd, Msg: ":id " + c.Name}, pid)
-			} else if peer.name == args[1] {
-				// nothing to do
-				return
-			} else {
-				msg = fmt.Sprintf("user \"%s\" changed their name to \"%s\"", peer.name, args[1])
-			}
-			peer.name = args[1]
-			c.ToUI <- ui.Packet{Msg: msg, Type: ui.PacketTypeAdmin}
-		}
-	}
-}
-
 func (c *Client) cleanPeer(pid peerID) {
 	peersMu.Lock()
-	delete(c.peers, pid)
 	defer peersMu.Unlock()
+	delete(c.peers, pid)
 
 	if !c.host && len(c.peers) < 1 {
 		c.retry(-1)
